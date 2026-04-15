@@ -1,7 +1,12 @@
 """
 combine_features.py
 
-Combines personality dimension scores and task features for logistic regression model.
+Merges personality dimension scores from the questionnaire with
+task features collected from the user into a single row per task.
+This combined row is what gets passed to the machine learning model.
+
+Functions:
+    combine_features() - Takes questionnaire averages and task list, returns combined feature rows.
 """
 
 from src.constants import CATEGORY_MAP

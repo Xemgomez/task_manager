@@ -1,7 +1,13 @@
 """
 task_features.py
 
-Task features that will be used in the logistic regression model.
+Collects task information from the user including name, category, and ratings.
+Input validation ensures all ratings are within acceptable ranges.
+
+Functions:
+    get_valid_rating() - Prompts user for a 1-5 integer rating with validation.
+    get_valid_float()  - Prompts user for a positive float value with validation.
+    get_task_input()   - Collects full task details for each item on the to-do list.
 """
 
 from src.constants import TASK_CATEGORIES

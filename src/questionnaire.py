@@ -1,7 +1,12 @@
 """
 questionnaire.py
 
-Questions for the user to answer to determine personality dimension values.
+Collects lifestyle information from the user through a series of questions.
+Each question maps to one of four personality dimensions: U, I, Q, S.
+
+Functions:
+    run_questionnaire() - Presents questions and collects answers from the user.
+    compute_profile()   - Computes average dimension scores and dominant personality category.
 """
 
 questions = [

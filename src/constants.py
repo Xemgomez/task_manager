@@ -1,7 +1,10 @@
 """
 constants.py
 
-Holds the constants used throughout the project.
+Defines shared constants used across the project.
+
+CATEGORY_MAP: Maps task category names to numerical values for the model.
+TASK_CATEGORIES: List of all task category names derived from CATEGORY_MAP.
 """
 
 CATEGORY_MAP = {

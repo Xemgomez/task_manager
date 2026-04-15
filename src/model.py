@@ -1,10 +1,24 @@
 """
 model.py
 
-Training the logistic regression model
+Handles training, evaluation, saving, loading, and prediction for the
+logistic regression model. SMOTE is applied to address class imbalance
+in the training data. StandardScaler normalizes features before training.
+
+Known Limitations:
+    - hours_per_week is closely tied to the completed label which may
+      inflate model confidence.
+    - Synthetic personality scores in training data may not reflect
+      real user behavior.
+
+Functions:
+    train_model()    - Trains logistic regression model on prepared dataset.
+    predict_tasks()  - Predicts completion probability for each user task.
+    save_model()     - Saves trained model and scaler to disk.
+    load_model()     - Loads saved model and scaler from disk.
 """
 
-import numpy as np
+import joblib
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -63,3 +77,14 @@ def predict_tasks(model, scaler, combined):
     results.sort(key=lambda x: x["completion_probability"], reverse=True)
     
     return results
+
+def save_model(model, scaler, model_path="models/model.pkl", scaler_path="models/scaler.pkl"):
+    joblib.dump(model, model_path)
+    joblib.dump(scaler, scaler_path)
+    print("Model saved.")
+
+def load_model(model_path="models/model.pkl", scaler_path="models/scaler.pkl"):
+    model = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+    print("Model loaded.")
+    return model, scaler

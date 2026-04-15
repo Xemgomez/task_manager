@@ -1,3 +1,16 @@
+"""
+prepare_data.py
+
+Loads and preprocesses the survey dataset for model training.
+Reshapes data from wide format (one row per participant) to long format
+(one row per task per participant). Generates synthetic personality scores
+(U, I, Q, S) for each participant since the dataset does not include them.
+Derives the target label 'completed' using the proxy rule: hours_per_week > 0.
+
+Functions:
+    load_and_prepare() - Loads Excel data, reshapes it, and returns a clean DataFrame.
+"""
+
 import pandas as pd
 import numpy as np
 
