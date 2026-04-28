@@ -107,55 +107,13 @@ if "category_ratings" in st.session_state:
         st.session_state["tasks"] = []
     if "form_counter" not in st.session_state:
         st.session_state["form_counter"] = 0
-    if "task_history" not in st.session_state:
-        st.session_state["task_history"] = {}  # name -> last used task entry
 
-    if "prev_selection" not in st.session_state:
-        st.session_state["prev_selection"] = "— Type a new task —"
-
-    # ── Previous task selector (outside form so it can trigger autofill) ──
-    history_names = list(st.session_state["task_history"].keys())
-    prev_options = ["— Type a new task —"] + history_names
-
-    # Use a stable key (not tied to form_counter) so the selectbox persists
-    # across reruns and we can detect changes reliably
-    prev_selection = st.selectbox(
-        "Use a previous task (or type a new one below)",
-        prev_options,
-        key="prev_select_stable"
-    )
-
-    # If selection changed, update stored selection and increment form_counter
-    # so the form below fully rerenders with fresh autofill values
-    if prev_selection != st.session_state["prev_selection"]:
-        st.session_state["prev_selection"] = prev_selection
-        st.session_state["form_counter"] += 1
-        st.rerun()
-
-    # Read fc AFTER the rerun check so it always reflects the latest counter
     fc = st.session_state["form_counter"]
+    cat_defaults = st.session_state["category_ratings"][TASK_CATEGORIES[0]]
 
-    # Determine autofill source
-    if prev_selection != "— Type a new task —":
-        autofill = st.session_state["task_history"][prev_selection]
-    else:
-        autofill = None
-
-    # Resolve defaults for sliders: autofill > category defaults
-    # Category selectbox is rendered inside the form below, so we need
-    # a temporary category to look up category defaults before the form.
-    # We use the autofill category if available, otherwise first TASK_CATEGORY.
-    pre_category = autofill["category"] if autofill else TASK_CATEGORIES[0]
-    cat_defaults = st.session_state["category_ratings"][pre_category]
-
-    # Task type toggle outside form (controls which fields appear inside)
-    default_type_index = 0
-    if autofill:
-        default_type_index = 1 if autofill["task_type"] == "block" else 0
     task_type = st.radio(
         "Task type",
         ["Weekly task (hours spread across the week)", "Block task (single uninterrupted session)"],
-        index=default_type_index,
         key=f"task_type_{fc}"
     )
     is_block = task_type.startswith("Block")
@@ -164,23 +122,19 @@ if "category_ratings" in st.session_state:
 
     with st.form(form_key):
         # Task Name
-        default_name = autofill["name"] if autofill else ""
-        task_name = st.text_input("Task Name", value=default_name)
+        task_name = st.text_input("Task Name")
 
-        # Category (now under Task Name)
-        default_cat_index = TASK_CATEGORIES.index(autofill["category"]) if autofill else 0
+        # Category (under Task Name)
         selected_category = st.selectbox(
             "Category",
             TASK_CATEGORIES,
-            index=default_cat_index,
+            index=0,
             key=f"cat_select_{fc}"
         )
 
         if is_block:
-            default_duration = autofill["duration_hours"] if autofill and autofill["task_type"] == "block" else 1.0
             duration_hours = st.number_input(
-                "Duration (hours)", min_value=0.5, max_value=24.0,
-                value=float(default_duration), step=0.5
+                "Duration (hours)", min_value=0.5, max_value=24.0, value=1.0, step=0.5
             )
             st.markdown("**Specific date and time** *(optional — leave blank to auto-schedule)*")
             col_date, col_time = st.columns(2)
@@ -191,37 +145,27 @@ if "category_ratings" in st.session_state:
             hours_per_week = duration_hours
             max_session = None
         else:
-            default_hpw = autofill["hours_per_week"] if autofill and autofill["task_type"] == "weekly" else 1.0
-            default_max = autofill.get("max_session") if autofill else 4.0
             hours_per_week = st.number_input(
-                "Total hours per week", min_value=0.5, max_value=168.0,
-                value=float(default_hpw), step=0.5
+                "Total hours per week", min_value=0.5, max_value=168.0, value=1.0, step=0.5
             )
             max_session = st.number_input(
-                "Max session length (hours)", min_value=0.5, max_value=8.0,
-                value=float(default_max), step=0.5,
+                "Max session length (hours)", min_value=0.5, max_value=8.0, value=4.0, step=0.5,
                 help="Each session will be capped at this length."
             )
             duration_hours = hours_per_week
             pinned_date = None
             pinned_time = None
 
-        # Ratings — autofill from previous task if selected, else category defaults
-        def_stress   = autofill["stress"]        if autofill else cat_defaults["stress"]
-        def_urgency  = autofill["urgency"]       if autofill else cat_defaults["urgency"]
-        def_import   = autofill["importance"]    if autofill else cat_defaults["importance"]
-        def_mental   = autofill["mental_effort"] if autofill else cat_defaults["mental_effort"]
-
-        st.markdown("**Ratings** *(pre-filled from previous task or category defaults — adjust if needed)*")
+        st.markdown("**Ratings** *(pre-filled from category defaults — adjust if needed)*")
         rcols = st.columns(4)
         with rcols[0]:
-            stress = st.slider("Stress (1-5)", 1, 5, def_stress)
+            stress = st.slider("Stress (1-5)", 1, 5, cat_defaults["stress"])
         with rcols[1]:
-            urgency = st.slider("Urgency (1-5)", 1, 5, def_urgency)
+            urgency = st.slider("Urgency (1-5)", 1, 5, cat_defaults["urgency"])
         with rcols[2]:
-            importance = st.slider("Importance (1-5)", 1, 5, def_import)
+            importance = st.slider("Importance (1-5)", 1, 5, cat_defaults["importance"])
         with rcols[3]:
-            mental_effort = st.slider("Mental Effort (1-5)", 1, 5, def_mental)
+            mental_effort = st.slider("Mental Effort (1-5)", 1, 5, cat_defaults["mental_effort"])
 
         add_task = st.form_submit_button("Add Task")
 
@@ -247,7 +191,6 @@ if "category_ratings" in st.session_state:
             }
             st.session_state["tasks"].append(task_entry)
             # Save to history (overwrites previous entry for same name)
-            st.session_state["task_history"][task_entry["name"]] = task_entry
             st.session_state["form_counter"] += 1
             st.rerun()
 
@@ -316,7 +259,6 @@ if "category_ratings" in st.session_state:
                         st.session_state["tasks"][i]["hours_per_week"] = new_duration
                         st.session_state["tasks"][i]["duration_hours"] = new_duration
                         st.session_state["tasks"][i]["max_session"] = new_max
-                    st.session_state["task_history"][task["name"]] = st.session_state["tasks"][i]
                     if "calendar_slots" in st.session_state:
                         del st.session_state["calendar_slots"]
                     st.session_state["editing_task_index"] = None
@@ -435,23 +377,41 @@ if "results" in st.session_state:
                 for i, task in enumerate(st.session_state["tasks"])
             }
 
+            TRANSITION = 0.5        # 30-minute gap between tasks
+            ERRANDS_CUTOFF = 22.0   # Errands must end by 10pm
+
+            def get_effective_end(task_category, e_h):
+                """Return the applicable end hour for a task, respecting curfews."""
+                if task_category == "Errands":
+                    return min(e_h, ERRANDS_CUTOFF)
+                return e_h
+
             def find_free_slot(slots, date, duration, s_h, e_h):
-                occupied = sorted(slots[date], key=lambda x: x[0])
+                """Find first free slot on date with transition buffer."""
+                # Include transition buffer in occupied ranges
+                occupied = sorted(
+                    [(occ_s, occ_e + TRANSITION, n) for (occ_s, occ_e, n) in slots[date]],
+                    key=lambda x: x[0]
+                )
                 cursor = s_h
-                for (occ_s, occ_e, _) in occupied:
+                for (occ_s, occ_e_buf, _) in occupied:
                     if cursor + duration <= occ_s:
                         return cursor
-                    cursor = max(cursor, occ_e)
+                    cursor = max(cursor, occ_e_buf)
                 if cursor + duration <= e_h:
                     return cursor
                 return None
+
+            def day_load(slots, date):
+                """Total booked hours on a date (excluding transition buffers)."""
+                return sum(e - s for (s, e, _) in slots[date])
 
             def book(slots, date, s, e, name):
                 slots[date].append((s, e, name))
 
             calendar_events = []
 
-            # Place pinned blocks
+            # Place pinned blocks (user-specified date/time — no redistribution)
             for task in pinned:
                 d = datetime.date.fromisoformat(task["pinned_date"])
                 tp = task["pinned_time"].split(":")
@@ -465,13 +425,18 @@ if "results" in st.session_state:
                     "task_type": "block", "color": task_colors[task["name"]]
                 })
 
-            dates_in_range = sorted(slots.keys())
+            dates_in_range = sorted(
+                [d for d in slots.keys() if d <= range_end]
+            )
 
-            # Place unpinned blocks
+            # Place unpinned block tasks — pick the least-loaded available day
             for task in unpinned_blocks:
+                eff_end = get_effective_end(task["category"], end_h)
+                # Sort dates by current load so task lands on lightest day
+                candidates = sorted(dates_in_range, key=lambda d: day_load(slots, d))
                 placed = False
-                for d in dates_in_range:
-                    s = find_free_slot(slots, d, task["duration_hours"], start_h, end_h)
+                for d in candidates:
+                    s = find_free_slot(slots, d, task["duration_hours"], start_h, eff_end)
                     if s is not None:
                         e = s + task["duration_hours"]
                         book(slots, d, s, e, task["name"])
@@ -485,29 +450,35 @@ if "results" in st.session_state:
                 if not placed:
                     st.warning(f"Could not fit '{task['name']}' in the selected date range.")
 
-            # Place weekly tasks split into sessions
+            # Place weekly tasks — distribute sessions evenly across the week
             for task in weekly_tasks:
                 remaining = task["hours_per_week"]
                 max_s = task.get("max_session") or 4.0
-                for d in dates_in_range:
-                    if remaining <= 0:
-                        break
+                eff_end = get_effective_end(task["category"], end_h)
+                while remaining > 0:
                     session = min(remaining, max_s)
-                    s = find_free_slot(slots, d, session, start_h, end_h)
-                    if s is not None:
-                        e = s + session
-                        book(slots, d, s, e, task["name"])
-                        calendar_events.append({
-                            "name": task["name"], "date": d,
-                            "start_h": s, "end_h": e,
-                            "task_type": "weekly", "color": task_colors[task["name"]]
-                        })
-                        remaining -= session
-                if remaining > 0:
-                    st.warning(
-                        f"'{task['name']}' has {remaining:.1f} unscheduled hrs — "
-                        f"try expanding your date range."
-                    )
+                    # Pick the least-loaded day that has room
+                    candidates = sorted(dates_in_range, key=lambda d: day_load(slots, d))
+                    placed_session = False
+                    for d in candidates:
+                        s = find_free_slot(slots, d, session, start_h, eff_end)
+                        if s is not None:
+                            e = s + session
+                            book(slots, d, s, e, task["name"])
+                            calendar_events.append({
+                                "name": task["name"], "date": d,
+                                "start_h": s, "end_h": e,
+                                "task_type": "weekly", "color": task_colors[task["name"]]
+                            })
+                            remaining -= session
+                            placed_session = True
+                            break
+                    if not placed_session:
+                        st.warning(
+                            f"'{task['name']}' has {remaining:.1f} unscheduled hrs — "
+                            f"try expanding your date range."
+                        )
+                        break
 
             st.session_state["calendar_slots"] = calendar_events
             st.session_state["task_colors"] = task_colors
@@ -723,7 +694,6 @@ if "results" in st.session_state:
                         st.session_state["tasks"][cal_edit_idx]["hours_per_week"] = cal_new_duration
                         st.session_state["tasks"][cal_edit_idx]["duration_hours"] = cal_new_duration
                         st.session_state["tasks"][cal_edit_idx]["max_session"] = cal_new_max
-                    st.session_state["task_history"][cal_task["name"]] = st.session_state["tasks"][cal_edit_idx]
                     if "calendar_slots" in st.session_state:
                         del st.session_state["calendar_slots"]
                     st.rerun()
