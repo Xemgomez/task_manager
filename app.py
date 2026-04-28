@@ -110,16 +110,30 @@ if "category_ratings" in st.session_state:
     if "task_history" not in st.session_state:
         st.session_state["task_history"] = {}  # name -> last used task entry
 
-    fc = st.session_state["form_counter"]
+    if "prev_selection" not in st.session_state:
+        st.session_state["prev_selection"] = "— Type a new task —"
 
     # ── Previous task selector (outside form so it can trigger autofill) ──
     history_names = list(st.session_state["task_history"].keys())
     prev_options = ["— Type a new task —"] + history_names
+
+    # Use a stable key (not tied to form_counter) so the selectbox persists
+    # across reruns and we can detect changes reliably
     prev_selection = st.selectbox(
         "Use a previous task (or type a new one below)",
         prev_options,
-        key=f"prev_select_{fc}"
+        key="prev_select_stable"
     )
+
+    # If selection changed, update stored selection and increment form_counter
+    # so the form below fully rerenders with fresh autofill values
+    if prev_selection != st.session_state["prev_selection"]:
+        st.session_state["prev_selection"] = prev_selection
+        st.session_state["form_counter"] += 1
+        st.rerun()
+
+    # Read fc AFTER the rerun check so it always reflects the latest counter
+    fc = st.session_state["form_counter"]
 
     # Determine autofill source
     if prev_selection != "— Type a new task —":
@@ -178,7 +192,7 @@ if "category_ratings" in st.session_state:
             max_session = None
         else:
             default_hpw = autofill["hours_per_week"] if autofill and autofill["task_type"] == "weekly" else 1.0
-            default_max = (autofill.get("max_session") or 4.0) if autofill else 4.0
+            default_max = autofill.get("max_session") if autofill else 4.0
             hours_per_week = st.number_input(
                 "Total hours per week", min_value=0.5, max_value=168.0,
                 value=float(default_hpw), step=0.5
@@ -239,9 +253,87 @@ if "category_ratings" in st.session_state:
 
     if st.session_state["tasks"]:
         st.subheader("Your Tasks:")
+
+        if "editing_task_index" not in st.session_state:
+            st.session_state["editing_task_index"] = None
+
         for i, task in enumerate(st.session_state["tasks"]):
             tag = "📅 Block" if task["task_type"] == "block" else "🔁 Weekly"
-            st.write(f"{i + 1}. {task['name']} — {task['category']} ({tag})")
+            col_label, col_edit, col_del = st.columns([6, 1, 1])
+            with col_label:
+                st.write(f"{i + 1}. {task['name']} — {task['category']} ({tag})")
+            with col_edit:
+                if st.button("✏️", key=f"edit_task_{i}", help="Edit scheduling fields"):
+                    st.session_state["editing_task_index"] = i
+                    st.rerun()
+            with col_del:
+                if st.button("🗑️", key=f"del_task_{i}", help="Delete this task"):
+                    st.session_state["tasks"].pop(i)
+                    if st.session_state["editing_task_index"] == i:
+                        st.session_state["editing_task_index"] = None
+                    st.rerun()
+
+            # Inline edit form for this task
+            if st.session_state["editing_task_index"] == i:
+                with st.form(f"edit_form_{i}"):
+                    st.markdown(f"**Editing: {task['name']}**")
+                    if task["task_type"] == "block":
+                        new_duration = st.number_input(
+                            "Duration (hours)", min_value=0.5, max_value=24.0,
+                            value=float(task.get("duration_hours", 1.0)), step=0.5
+                        )
+                        st.markdown("**Date and time** *(leave date blank to auto-schedule)*")
+                        ec1, ec2 = st.columns(2)
+                        with ec1:
+                            existing_date = datetime.date.fromisoformat(task["pinned_date"]) if task.get("pinned_date") else None
+                            new_date = st.date_input("Date", value=existing_date)
+                        with ec2:
+                            existing_time = datetime.time.fromisoformat(task["pinned_time"]) if task.get("pinned_time") else datetime.time(9, 0)
+                            new_time = st.time_input("Start time", value=existing_time)
+                    else:
+                        new_duration = st.number_input(
+                            "Total hours per week", min_value=0.5, max_value=168.0,
+                            value=float(task.get("hours_per_week", 1.0)), step=0.5
+                        )
+                        new_max = st.number_input(
+                            "Max session length (hours)", min_value=0.5, max_value=8.0,
+                            value=float(task.get("max_session") or 4.0), step=0.5
+                        )
+
+                    save_col, cancel_col = st.columns(2)
+                    with save_col:
+                        save_edit = st.form_submit_button("💾 Save")
+                    with cancel_col:
+                        cancel_edit = st.form_submit_button("✖ Cancel")
+
+                if save_edit:
+                    if task["task_type"] == "block":
+                        st.session_state["tasks"][i]["duration_hours"] = new_duration
+                        st.session_state["tasks"][i]["hours_per_week"] = new_duration
+                        st.session_state["tasks"][i]["pinned_date"] = str(new_date) if new_date else None
+                        st.session_state["tasks"][i]["pinned_time"] = str(new_time) if new_date else None
+                    else:
+                        st.session_state["tasks"][i]["hours_per_week"] = new_duration
+                        st.session_state["tasks"][i]["duration_hours"] = new_duration
+                        st.session_state["tasks"][i]["max_session"] = new_max
+                    st.session_state["task_history"][task["name"]] = st.session_state["tasks"][i]
+                    if "calendar_slots" in st.session_state:
+                        del st.session_state["calendar_slots"]
+                    st.session_state["editing_task_index"] = None
+                    st.rerun()
+
+                if cancel_edit:
+                    st.session_state["editing_task_index"] = None
+                    st.rerun()
+
+        if st.button("🗑️ Delete All Tasks"):
+            st.session_state["tasks"] = []
+            st.session_state["editing_task_index"] = None
+            if "results" in st.session_state:
+                del st.session_state["results"]
+            if "calendar_slots" in st.session_state:
+                del st.session_state["calendar_slots"]
+            st.rerun()
 
 # ─────────────────────────────────────────────
 # Step 4: Generate Prioritized Schedule
@@ -284,6 +376,8 @@ if "results" in st.session_state:
             day_start = st.time_input("Day starts at", value=datetime.time(8, 0), key="day_start")
         with col2:
             day_end = st.time_input("Day ends at", value=datetime.time(22, 0), key="day_end")
+        if (day_end.hour + day_end.minute / 60) <= (day_start.hour + day_start.minute / 60):
+            st.info("🌙 Overnight schedule detected — your day will be scheduled across midnight.")
 
         st.markdown("**Schedule date range** *(for auto-scheduled tasks)*")
         col3, col4 = st.columns(2)
@@ -302,10 +396,18 @@ if "results" in st.session_state:
             start_h = day_start.hour + day_start.minute / 60
             end_h = day_end.hour + day_end.minute / 60
 
-            # Build free-slot tracker per date
+            # Handle overnight schedules (e.g. 11am start, 4am end next day)
+            # If end is before or equal to start, the window crosses midnight.
+            # Represent as continuous hours: e.g. 4am becomes 28 (24+4).
+            if end_h <= start_h:
+                end_h += 24
+
+            # Build free-slot tracker per date.
+            # Add one extra day as overflow buffer for overnight schedules.
             slots = {}
             d = range_start
-            while d <= range_end:
+            end_buffer = range_end + datetime.timedelta(days=1)
+            while d <= end_buffer:
                 slots[d] = []
                 d += datetime.timedelta(days=1)
 
@@ -425,6 +527,8 @@ if "results" in st.session_state:
         view = st.radio("View", ["Weekly", "Monthly"], horizontal=True, key="cal_view")
 
         def fmt_hour(h):
+            # Normalize hours > 24 back to clock time (e.g. 28 -> 4am)
+            h = h % 24
             hour = int(h)
             minute = int(round((h - hour) * 60))
             suffix = "am" if hour < 12 else "pm"
@@ -561,3 +665,73 @@ if "results" in st.session_state:
                     f"<span style='font-size:12px'>{icon} {task['name']}</span></div>",
                     unsafe_allow_html=True
                 )
+
+        # ── Calendar Edit Panel ──
+        st.markdown("---")
+        st.subheader("✏️ Edit a Scheduled Task")
+        task_names = [t["name"] for t in st.session_state["tasks"]]
+        cal_edit_name = st.selectbox(
+            "Select a task to edit its scheduling",
+            ["— Select a task —"] + task_names,
+            key="cal_edit_select"
+        )
+
+        if cal_edit_name != "— Select a task —":
+            cal_edit_idx = next(
+                (i for i, t in enumerate(st.session_state["tasks"]) if t["name"] == cal_edit_name), None
+            )
+            if cal_edit_idx is not None:
+                cal_task = st.session_state["tasks"][cal_edit_idx]
+                with st.form("cal_edit_form"):
+                    st.markdown(f"**{cal_task['name']}** — {cal_task['category']}")
+                    if cal_task["task_type"] == "block":
+                        cal_new_duration = st.number_input(
+                            "Duration (hours)", min_value=0.5, max_value=24.0,
+                            value=float(cal_task.get("duration_hours", 1.0)), step=0.5
+                        )
+                        st.markdown("**Date and time** *(leave date blank to auto-schedule)*")
+                        cc1, cc2 = st.columns(2)
+                        with cc1:
+                            cal_existing_date = datetime.date.fromisoformat(cal_task["pinned_date"]) if cal_task.get("pinned_date") else None
+                            cal_new_date = st.date_input("Date", value=cal_existing_date, key="cal_edit_date")
+                        with cc2:
+                            cal_existing_time = datetime.time.fromisoformat(cal_task["pinned_time"]) if cal_task.get("pinned_time") else datetime.time(9, 0)
+                            cal_new_time = st.time_input("Start time", value=cal_existing_time, key="cal_edit_time")
+                    else:
+                        cal_new_duration = st.number_input(
+                            "Total hours per week", min_value=0.5, max_value=168.0,
+                            value=float(cal_task.get("hours_per_week", 1.0)), step=0.5
+                        )
+                        cal_new_max = st.number_input(
+                            "Max session length (hours)", min_value=0.5, max_value=8.0,
+                            value=float(cal_task.get("max_session") or 4.0), step=0.5
+                        )
+
+                    cs1, cs2 = st.columns(2)
+                    with cs1:
+                        cal_save = st.form_submit_button("💾 Save & Rebuild Calendar")
+                    with cs2:
+                        cal_delete = st.form_submit_button("🗑️ Delete This Task")
+
+                if cal_save:
+                    if cal_task["task_type"] == "block":
+                        st.session_state["tasks"][cal_edit_idx]["duration_hours"] = cal_new_duration
+                        st.session_state["tasks"][cal_edit_idx]["hours_per_week"] = cal_new_duration
+                        st.session_state["tasks"][cal_edit_idx]["pinned_date"] = str(cal_new_date) if cal_new_date else None
+                        st.session_state["tasks"][cal_edit_idx]["pinned_time"] = str(cal_new_time) if cal_new_date else None
+                    else:
+                        st.session_state["tasks"][cal_edit_idx]["hours_per_week"] = cal_new_duration
+                        st.session_state["tasks"][cal_edit_idx]["duration_hours"] = cal_new_duration
+                        st.session_state["tasks"][cal_edit_idx]["max_session"] = cal_new_max
+                    st.session_state["task_history"][cal_task["name"]] = st.session_state["tasks"][cal_edit_idx]
+                    if "calendar_slots" in st.session_state:
+                        del st.session_state["calendar_slots"]
+                    st.rerun()
+
+                if cal_delete:
+                    st.session_state["tasks"].pop(cal_edit_idx)
+                    if "calendar_slots" in st.session_state:
+                        del st.session_state["calendar_slots"]
+                    if "results" in st.session_state:
+                        del st.session_state["results"]
+                    st.rerun()
