@@ -166,14 +166,11 @@ if "category_ratings" in st.session_state:
 
         add_task = st.form_submit_button("Add Task")
 
-    if add_task:
-        task_key = f"{task_name.strip()}_{selected_category}_{duration_hours}"
+       if add_task:
         if not task_name.strip() or task_name.strip().isdigit():
             st.warning("Please enter a valid task name.")
         elif duration_hours == 0.0:
             st.warning("Please enter a duration greater than 0.")
-        elif task_key == st.session_state["last_added"]:
-            st.warning("This task was already added.")
         else:
             task_entry = {
                 "name": task_name.strip(),
@@ -190,7 +187,6 @@ if "category_ratings" in st.session_state:
                 "pinned_time": str(pinned_time) if (is_block and pinned_date) else None,
             }
             st.session_state["tasks"].append(task_entry)
-            st.session_state["last_added"] = task_key
             st.session_state["form_counter"] += 1
             st.rerun()
 
