@@ -105,33 +105,68 @@ if "category_ratings" in st.session_state:
 
     if "tasks" not in st.session_state:
         st.session_state["tasks"] = []
-    if "last_added" not in st.session_state:
-        st.session_state["last_added"] = None
     if "form_counter" not in st.session_state:
         st.session_state["form_counter"] = 0
+    if "task_history" not in st.session_state:
+        st.session_state["task_history"] = {}  # name -> last used task entry
 
-    selected_category = st.selectbox(
-        "Category",
-        TASK_CATEGORIES,
-        key=f"cat_select_{st.session_state['form_counter']}"
+    fc = st.session_state["form_counter"]
+
+    # ── Previous task selector (outside form so it can trigger autofill) ──
+    history_names = list(st.session_state["task_history"].keys())
+    prev_options = ["— Type a new task —"] + history_names
+    prev_selection = st.selectbox(
+        "Use a previous task (or type a new one below)",
+        prev_options,
+        key=f"prev_select_{fc}"
     )
-    defaults = st.session_state["category_ratings"][selected_category]
 
+    # Determine autofill source
+    if prev_selection != "— Type a new task —":
+        autofill = st.session_state["task_history"][prev_selection]
+    else:
+        autofill = None
+
+    # Resolve defaults for sliders: autofill > category defaults
+    # Category selectbox is rendered inside the form below, so we need
+    # a temporary category to look up category defaults before the form.
+    # We use the autofill category if available, otherwise first TASK_CATEGORY.
+    pre_category = autofill["category"] if autofill else TASK_CATEGORIES[0]
+    cat_defaults = st.session_state["category_ratings"][pre_category]
+
+    # Task type toggle outside form (controls which fields appear inside)
+    default_type_index = 0
+    if autofill:
+        default_type_index = 1 if autofill["task_type"] == "block" else 0
     task_type = st.radio(
         "Task type",
         ["Weekly task (hours spread across the week)", "Block task (single uninterrupted session)"],
-        key=f"task_type_{st.session_state['form_counter']}"
+        index=default_type_index,
+        key=f"task_type_{fc}"
     )
     is_block = task_type.startswith("Block")
 
-    form_key = f"task_form_{st.session_state['form_counter']}"
+    form_key = f"task_form_{fc}"
 
     with st.form(form_key):
-        task_name = st.text_input("Task Name")
+        # Task Name
+        default_name = autofill["name"] if autofill else ""
+        task_name = st.text_input("Task Name", value=default_name)
+
+        # Category (now under Task Name)
+        default_cat_index = TASK_CATEGORIES.index(autofill["category"]) if autofill else 0
+        selected_category = st.selectbox(
+            "Category",
+            TASK_CATEGORIES,
+            index=default_cat_index,
+            key=f"cat_select_{fc}"
+        )
 
         if is_block:
+            default_duration = autofill["duration_hours"] if autofill and autofill["task_type"] == "block" else 1.0
             duration_hours = st.number_input(
-                "Duration (hours)", min_value=0.5, max_value=24.0, value=1.0, step=0.5
+                "Duration (hours)", min_value=0.5, max_value=24.0,
+                value=float(default_duration), step=0.5
             )
             st.markdown("**Specific date and time** *(optional — leave blank to auto-schedule)*")
             col_date, col_time = st.columns(2)
@@ -142,38 +177,45 @@ if "category_ratings" in st.session_state:
             hours_per_week = duration_hours
             max_session = None
         else:
+            default_hpw = autofill["hours_per_week"] if autofill and autofill["task_type"] == "weekly" else 1.0
+            default_max = autofill.get("max_session") or 4.0
             hours_per_week = st.number_input(
-                "Total hours per week", min_value=0.5, max_value=168.0, value=1.0, step=0.5
+                "Total hours per week", min_value=0.5, max_value=168.0,
+                value=float(default_hpw), step=0.5
             )
             max_session = st.number_input(
-                "Max session length (hours)", min_value=0.5, max_value=8.0, value=4.0, step=0.5,
+                "Max session length (hours)", min_value=0.5, max_value=8.0,
+                value=float(default_max), step=0.5,
                 help="Each session will be capped at this length."
             )
             duration_hours = hours_per_week
             pinned_date = None
             pinned_time = None
 
-        st.markdown("**Ratings** *(pre-filled from category defaults — adjust if needed)*")
+        # Ratings — autofill from previous task if selected, else category defaults
+        def_stress   = autofill["stress"]        if autofill else cat_defaults["stress"]
+        def_urgency  = autofill["urgency"]       if autofill else cat_defaults["urgency"]
+        def_import   = autofill["importance"]    if autofill else cat_defaults["importance"]
+        def_mental   = autofill["mental_effort"] if autofill else cat_defaults["mental_effort"]
+
+        st.markdown("**Ratings** *(pre-filled from previous task or category defaults — adjust if needed)*")
         rcols = st.columns(4)
         with rcols[0]:
-            stress = st.slider("Stress (1-5)", 1, 5, defaults["stress"])
+            stress = st.slider("Stress (1-5)", 1, 5, def_stress)
         with rcols[1]:
-            urgency = st.slider("Urgency (1-5)", 1, 5, defaults["urgency"])
+            urgency = st.slider("Urgency (1-5)", 1, 5, def_urgency)
         with rcols[2]:
-            importance = st.slider("Importance (1-5)", 1, 5, defaults["importance"])
+            importance = st.slider("Importance (1-5)", 1, 5, def_import)
         with rcols[3]:
-            mental_effort = st.slider("Mental Effort (1-5)", 1, 5, defaults["mental_effort"])
+            mental_effort = st.slider("Mental Effort (1-5)", 1, 5, def_mental)
 
         add_task = st.form_submit_button("Add Task")
 
     if add_task:
-        task_key = f"{task_name.strip()}_{selected_category}_{duration_hours}"
         if not task_name.strip() or task_name.strip().isdigit():
             st.warning("Please enter a valid task name.")
         elif duration_hours == 0.0:
             st.warning("Please enter a duration greater than 0.")
-        elif task_key == st.session_state["last_added"]:
-            st.warning("This task was already added.")
         else:
             task_entry = {
                 "name": task_name.strip(),
@@ -190,7 +232,8 @@ if "category_ratings" in st.session_state:
                 "pinned_time": str(pinned_time) if (is_block and pinned_date) else None,
             }
             st.session_state["tasks"].append(task_entry)
-            st.session_state["last_added"] = task_key
+            # Save to history (overwrites previous entry for same name)
+            st.session_state["task_history"][task_entry["name"]] = task_entry
             st.session_state["form_counter"] += 1
             st.rerun()
 
